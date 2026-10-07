@@ -4,44 +4,37 @@ import { useState, useEffect } from 'react';
 const TARGET_MINUTES = 20;
 
 export default function Accounting() {
-  // Sample active JOs (In production, fetched from backend/Smartsheet)
-  const [activeJOs, setActiveJOs] = useState([
-    {
-      joNumber: 'JO-2026-001',
-      customerName: 'ABC Construction',
-      qrNumber: 'QR-00125',
-      date: new Date().toLocaleDateString(),
-      startTime: new Date(Date.now() - 5 * 60 * 1000), // Started 5 mins ago
-      status: 'RELEASING',
-    },
-    {
-      joNumber: 'JO-2026-002',
-      customerName: 'XYZ Glass Supply',
-      qrNumber: 'QR-00126',
-      date: new Date().toLocaleDateString(),
-      startTime: new Date(Date.now() - 17 * 60 * 1000), // Started 17 mins ago (Yellow zone)
-      status: 'RELEASING',
-    },
-    {
-      joNumber: 'JO-2026-003',
-      customerName: 'Megaworld Builders',
-      qrNumber: 'QR-00127',
-      date: new Date().toLocaleDateString(),
-      startTime: new Date(Date.now() - 22 * 60 * 1000), // Started 22 mins ago (Exceeded/Red)
-      status: 'RELEASING',
-    },
-  ]);
-
+  const [activeJOs, setActiveJOs] = useState([]);
   const [now, setNow] = useState(new Date());
 
-  // Update clock every second to keep countdowns ticking in real time
+  // Fetch live orders from Smartsheet backend
+  const fetchOrders = async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/orders');
+      const data = await res.json();
+      setActiveJOs(data);
+    } catch (err) {
+      console.error('Error fetching live data:', err);
+    }
+  };
+
+  // Auto-refresh orders every 5s
+  useEffect(() => {
+    fetchOrders();
+    const interval = setInterval(fetchOrders, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Update clock every second to keep countdowns ticking
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Helper function to calculate remaining time and status color
+  // Calculate remaining time and status color
   const getTimerDetails = (startTime) => {
+    if (!startTime) return { timeText: '--:--', badgeColor: '#6c757d', label: 'NO TIME' };
+
     const elapsedSeconds = Math.floor((now - new Date(startTime)) / 1000);
     const targetSeconds = TARGET_MINUTES * 60;
     const remainingSeconds = targetSeconds - elapsedSeconds;
@@ -50,13 +43,12 @@ export default function Accounting() {
     const secs = Math.abs(remainingSeconds) % 60;
     const formattedTime = `${remainingSeconds < 0 ? '-' : ''}${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 
-    // Color indicators
     if (elapsedSeconds >= targetSeconds) {
-      return { timeText: formattedTime, badgeColor: '#dc3545', label: 'EXCEEDED' }; // Red
+      return { timeText: formattedTime, badgeColor: '#dc3545', label: 'EXCEEDED' };
     } else if (elapsedSeconds >= 15 * 60) {
-      return { timeText: formattedTime, badgeColor: '#ffc107', label: 'APPROACHING LIMIT' }; // Yellow
+      return { timeText: formattedTime, badgeColor: '#ffc107', label: 'APPROACHING LIMIT' };
     } else {
-      return { timeText: formattedTime, badgeColor: '#28a745', label: 'WITHIN TARGET' }; // Green
+      return { timeText: formattedTime, badgeColor: '#28a745', label: 'WITHIN TARGET' };
     }
   };
 
@@ -77,25 +69,35 @@ export default function Accounting() {
           </tr>
         </thead>
         <tbody>
-          {activeJOs.map((jo) => {
-            const timer = getTimerDetails(jo.startTime);
-            return (
-              <tr key={jo.joNumber} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '12px', fontWeight: 'bold' }}>{jo.joNumber}</td>
-                <td style={{ padding: '12px' }}>{jo.customerName}</td>
-                <td style={{ padding: '12px', color: '#555' }}>{jo.qrNumber}</td>
-                <td style={{ padding: '12px' }}>{new Date(jo.startTime).toLocaleTimeString()}</td>
-                <td style={{ padding: '12px', fontFamily: 'monospace', fontSize: '18px', fontWeight: 'bold' }}>
-                  {timer.timeText}
-                </td>
-                <td style={{ padding: '12px' }}>
-                  <span style={{ backgroundColor: timer.badgeColor, color: timer.badgeColor === '#ffc107' ? '#000' : 'white', padding: '6px 12px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' }}>
-                    {timer.label}
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
+          {activeJOs.length === 0 ? (
+            <tr>
+              <td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#888' }}>
+                No active releasing orders found in Smartsheet.
+              </td>
+            </tr>
+          ) : (
+            activeJOs.map((jo, idx) => {
+              const timer = getTimerDetails(jo.startTime);
+              return (
+                <tr key={jo.joNumber || idx} style={{ borderBottom: '1px solid #eee' }}>
+                  <td style={{ padding: '12px', fontWeight: 'bold' }}>{jo.joNumber || 'N/A'}</td>
+                  <td style={{ padding: '12px' }}>{jo.customerName || 'N/A'}</td>
+                  <td style={{ padding: '12px', color: '#555' }}>{jo.qrNumber || 'N/A'}</td>
+                  <td style={{ padding: '12px' }}>
+                    {jo.startTime ? new Date(jo.startTime).toLocaleTimeString() : 'N/A'}
+                  </td>
+                  <td style={{ padding: '12px', fontFamily: 'monospace', fontSize: '18px', fontWeight: 'bold' }}>
+                    {timer.timeText}
+                  </td>
+                  <td style={{ padding: '12px' }}>
+                    <span style={{ backgroundColor: timer.badgeColor, color: timer.badgeColor === '#ffc107' ? '#000' : 'white', padding: '6px 12px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' }}>
+                      {timer.label}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })
+          )}
         </tbody>
       </table>
     </div>
